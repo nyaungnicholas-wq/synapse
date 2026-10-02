@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: synapse
+      POSTGRES_DB: synapse
+    ports:
+      - "5433:5432"
+    volumes:
+      - synapse-db:/var/lib/postgresql/data
+volumes:
+  synapse-db:

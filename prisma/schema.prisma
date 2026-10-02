@@ -1,0 +1,598 @@
+// SYNAPSE relational schema. Every space-scoped row hangs off a Connection,
+// and every read of that row must be filtered through ConnectionMember.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- enums ----------
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum AgeRange {
+  UNDER_18
+  AGE_18_29
+  AGE_30_49
+  AGE_50_64
+  AGE_65_79
+  AGE_80_PLUS
+}
+
+enum RelationshipType {
+  GRANDPARENT_GRANDCHILD
+  PARENT_CHILD
+  AUNT_UNCLE_NIECE_NEPHEW
+  MENTOR_MENTEE
+  CAREGIVER
+  FRIENDS
+  OTHER
+}
+
+// Which side of the generational gap a person is on, inside one relationship.
+enum GenerationSide {
+  OLDER
+  YOUNGER
+}
+
+enum Goal {
+  TALK_MORE_OFTEN
+  LEARN_ABOUT_LIVES
+  PRESERVE_STORIES
+  UNDERSTAND_EACH_OTHER
+  MEANINGFUL_TIME
+}
+
+enum TextSize {
+  STANDARD
+  LARGE
+  EXTRA_LARGE
+}
+
+enum TokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+enum ConnectionStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
+enum CategoryKind {
+  PROMPT
+  ACTIVITY
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// Who a prompt is written for.
+enum PromptAudience {
+  ANYONE
+  OLDER
+  YOUNGER
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  INVOLVED
+}
+
+enum StepFor {
+  BOTH
+  OLDER
+  YOUNGER
+}
+
+enum ProgressStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum MemoryType {
+  STORY
+  CONVERSATION
+  ACTIVITY
+  PHOTO
+  MOMENT
+}
+
+enum PlanCode {
+  FREE
+  PREMIUM
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+}
+
+enum BillingProvider {
+  MOCK
+  STRIPE
+}
+
+enum NotificationType {
+  INVITE_ACCEPTED
+  NEW_RESPONSE
+  CONVERSATION_COMPLETED
+  ACTIVITY_COMPLETED
+  MEMORY_ADDED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  CLOSED
+}
+
+// ---------- identity ----------
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique // always stored lower-cased
+  passwordHash    String? // null for Google-only accounts
+  googleId        String?       @unique
+  emailVerifiedAt DateTime?
+  role            Role          @default(USER)
+  status          AccountStatus @default(ACTIVE)
+  // Throwaway accounts made by the one-click demo; deleted after a day.
+  isDemo          Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  profile           Profile?
+  sessions          Session[]
+  authTokens        AuthToken[]
+  memberships       ConnectionMember[]
+  invitationsSent   Invitation[]       @relation("InvitationInviter")
+  invitationsUsed   Invitation[]       @relation("InvitationAcceptedBy")
+  conversations     Conversation[]
+  responses         PromptResponse[]
+  favorites         PromptFavorite[]
+  activitySessions  ActivitySession[]
+  activityNotes     ActivityNote[]
+  memories          Memory[]
+  photos            Photo[]
+  subscription      Subscription?
+  notifications     Notification[]
+  reportsFiled      Report[]
+}
+
+model Profile {
+  id                String           @id @default(cuid())
+  userId            String           @unique
+  firstName         String           @db.VarChar(60)
+  ageRange          AgeRange
+  relationshipType  RelationshipType
+  side              GenerationSide
+  connectWithLabel  String           @db.VarChar(80) // e.g. "my grandson Leo"
+  interests         String[]
+  goals             Goal[]
+  textSize          TextSize         @default(STANDARD)
+  onboardedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique // sha256 of the cookie value; the raw token is never stored
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String
+  type      TokenType
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+// ---------- connection spaces ----------
+
+model Connection {
+  id        String           @id @default(cuid())
+  status    ConnectionStatus @default(ACTIVE)
+  // Set when a member leaves. The remaining member keeps their history, but a closed space
+  // never takes a new member: otherwise a newcomer would read the leaver's private content.
+  closedAt  DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  members          ConnectionMember[]
+  invitations      Invitation[]
+  conversations    Conversation[]
+  activitySessions ActivitySession[]
+  memories         Memory[]
+  photos           Photo[]
+  reports          Report[]
+}
+
+model ConnectionMember {
+  id           String         @id @default(cuid())
+  connectionId String
+  userId       String
+  side         GenerationSide
+  joinedAt     DateTime       @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, userId])
+  @@index([userId])
+}
+
+model Invitation {
+  id           String           @id @default(cuid())
+  connectionId String
+  inviterId    String
+  code         String           @unique @db.VarChar(16)
+  email        String?          @db.VarChar(254)
+  status       InvitationStatus @default(PENDING)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  acceptedById String?
+  createdAt    DateTime         @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  inviter    User       @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  acceptedBy User?      @relation("InvitationAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
+  @@index([inviterId])
+}
+
+// ---------- content (admin-managed) ----------
+
+model Category {
+  id          String        @id @default(cuid())
+  kind        CategoryKind
+  slug        String        @db.VarChar(60)
+  name        String        @db.VarChar(60)
+  description String        @default("") @db.VarChar(240)
+  sortOrder   Int           @default(0)
+  status      ContentStatus @default(PUBLISHED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  prompts    Prompt[]
+  activities Activity[]
+  memories   Memory[]
+
+  @@unique([kind, slug])
+}
+
+model Prompt {
+  id         String         @id @default(cuid())
+  categoryId String
+  text       String         @db.VarChar(300)
+  followUp   String?        @db.VarChar(300)
+  audience   PromptAudience @default(ANYONE)
+  isPremium  Boolean        @default(false)
+  featured   Boolean        @default(false)
+  status     ContentStatus  @default(DRAFT)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  category      Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  conversations Conversation[]
+  favorites     PromptFavorite[]
+
+  @@index([categoryId, status])
+  @@index([status, featured])
+}
+
+// A monthly activity collection ("October: Kitchen Table Stories").
+model Collection {
+  id          String        @id @default(cuid())
+  slug        String        @unique @db.VarChar(80)
+  title       String        @db.VarChar(120)
+  description String        @db.VarChar(400)
+  month       DateTime      @db.Date // first day of the month it is featured
+  isPremium   Boolean       @default(false)
+  status      ContentStatus @default(DRAFT)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  activities Activity[]
+
+  @@index([status, month])
+}
+
+model Activity {
+  id                 String        @id @default(cuid())
+  slug               String        @unique @db.VarChar(80)
+  title              String        @db.VarChar(120)
+  summary            String        @db.VarChar(200)
+  description        String        @db.VarChar(2000)
+  categoryId         String
+  collectionId       String?
+  estimatedMinutes   Int
+  difficulty         Difficulty    @default(EASY)
+  reflectionQuestion String        @db.VarChar(300)
+  isPremium          Boolean       @default(false)
+  featured           Boolean       @default(false)
+  status             ContentStatus @default(DRAFT)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  category   Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  collection Collection?       @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  steps      ActivityStep[]
+  sessions   ActivitySession[]
+  memories   Memory[]
+
+  @@index([categoryId, status])
+  @@index([collectionId])
+}
+
+model ActivityStep {
+  id         String   @id @default(cuid())
+  activityId String
+  order      Int
+  title      String   @db.VarChar(120)
+  body       String   @db.VarChar(1000)
+  stepFor    StepFor  @default(BOTH)
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, order])
+}
+
+// ---------- doing things together ----------
+
+// One prompt being talked through inside one Connection Space.
+model Conversation {
+  id           String         @id @default(cuid())
+  connectionId String
+  promptId     String
+  startedById  String
+  status       ProgressStatus @default(IN_PROGRESS)
+  completedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  connection Connection       @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  prompt     Prompt           @relation(fields: [promptId], references: [id], onDelete: Restrict)
+  startedBy  User             @relation(fields: [startedById], references: [id], onDelete: Cascade)
+  responses  PromptResponse[]
+  memory     Memory?
+
+  @@unique([connectionId, promptId])
+  @@index([connectionId, createdAt])
+}
+
+model PromptResponse {
+  id             String   @id @default(cuid())
+  conversationId String
+  authorId       String
+  body           String   @db.VarChar(4000)
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model PromptFavorite {
+  userId    String
+  promptId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt Prompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@id([userId, promptId])
+}
+
+model ActivitySession {
+  id           String         @id @default(cuid())
+  connectionId String
+  activityId   String
+  startedById  String
+  status       ProgressStatus @default(IN_PROGRESS)
+  currentStep  Int            @default(1)
+  completedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  connection Connection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  activity   Activity       @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  startedBy  User           @relation(fields: [startedById], references: [id], onDelete: Cascade)
+  notes      ActivityNote[]
+  memory     Memory?
+
+  @@index([connectionId, createdAt])
+}
+
+// What someone wrote during an activity. stepOrder null = the reflection answer.
+model ActivityNote {
+  id        String   @id @default(cuid())
+  sessionId String
+  authorId  String
+  stepOrder Int?
+  body      String   @db.VarChar(4000)
+  createdAt DateTime @default(now())
+
+  session ActivitySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  author  User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+// ---------- memories ----------
+
+model Photo {
+  id           String   @id @default(cuid())
+  connectionId String
+  uploaderId   String
+  storageKey   String   @unique // random id, never user-supplied
+  mimeType     String   @db.VarChar(40)
+  sizeBytes    Int
+  data         Bytes // the cleaned image (max 5 MB); kept in Postgres so any host can serve it
+  createdAt    DateTime @default(now())
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  uploader   User       @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  memory     Memory?
+
+  @@index([connectionId])
+}
+
+model Memory {
+  id                String     @id @default(cuid())
+  connectionId      String
+  createdById       String
+  type              MemoryType
+  title             String     @db.VarChar(120)
+  body              String     @default("") @db.VarChar(8000)
+  whenText          String?    @db.VarChar(60) // "Summer 1968" - memories rarely have exact dates
+  favorite          Boolean    @default(false)
+  categoryId        String?
+  activityId        String?
+  conversationId    String?    @unique
+  activitySessionId String?    @unique
+  photoId           String?    @unique
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  connection      Connection       @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  createdBy       User             @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  activity        Activity?        @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  conversation    Conversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  activitySession ActivitySession? @relation(fields: [activitySessionId], references: [id], onDelete: SetNull)
+  photo           Photo?           @relation(fields: [photoId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId, createdAt])
+  @@index([connectionId, createdById])
+  @@index([connectionId, type])
+}
+
+// ---------- billing ----------
+
+// Admin-editable plan definitions. Limits are per Connection Space per week; null = unlimited.
+model Plan {
+  code                PlanCode        @id
+  name                String          @db.VarChar(40)
+  priceCents          Int
+  interval            BillingInterval @default(MONTH)
+  stripePriceId       String?
+  features            String[]
+  weeklyPromptLimit   Int?
+  weeklyActivityLimit Int?
+  memoryLimit         Int?
+  active              Boolean         @default(true)
+  updatedAt           DateTime        @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  planCode             PlanCode
+  status               SubscriptionStatus @default(ACTIVE)
+  provider             BillingProvider
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planCode], references: [code], onDelete: Restrict)
+}
+
+// ---------- system ----------
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String           @db.VarChar(160)
+  link      String?          @db.VarChar(300)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+// A safety concern raised by a member of a Connection Space.
+model Report {
+  id           String       @id @default(cuid())
+  reporterId   String
+  connectionId String?
+  reason       String       @db.VarChar(80)
+  details      String       @db.VarChar(2000)
+  status       ReportStatus @default(OPEN)
+  adminNote    String?      @db.VarChar(2000)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  reporter   User        @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  connection Connection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+// Every outgoing email. In development nothing is sent; /dev/mailbox reads this table.
+model EmailOutbox {
+  id        String    @id @default(cuid())
+  to        String    @db.VarChar(254)
+  subject   String    @db.VarChar(200)
+  text      String
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+}

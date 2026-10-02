@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/*
+ * SYNAPSE design tokens. Every text/background pair used in the UI is >= 4.5:1
+ * (most >= 7:1); borders on form controls are >= 3:1 against the canvas.
+ * Measured: ink 15.6, ink-soft 9.5, ink-muted 5.8, white-on-clay 5.9, sage 6.1, focus 6.3.
+ */
+@theme {
+  --color-canvas: #fbf7f0;
+  --color-surface: #ffffff;
+  --color-sand: #f4ede3;
+  --color-ink: #231d17;
+  --color-ink-soft: #4a4037;
+  --color-ink-muted: #6b5f53;
+  --color-line: #e6dccf;
+  --color-line-strong: #9c8b78;
+
+  --color-clay: #a8461f;
+  --color-clay-hover: #8f3a18;
+  --color-clay-soft: #f6e3d8;
+  --color-sage: #3f6650;
+  --color-sage-deep: #2f5240;
+  --color-sage-soft: #e3ede5;
+  --color-honey: #e8b04b;
+  --color-honey-ink: #7a5310;
+  --color-honey-soft: #fbf0d9;
+  --color-plum: #5b3a5e;
+  --color-plum-soft: #efe4f0;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-focus: #0b5cad;
+
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-atkinson), system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --radius-card: 1.25rem;
+  --radius-control: 0.875rem;
+
+  --shadow-card: 0 1px 2px rgb(35 29 23 / 0.04), 0 8px 24px -12px rgb(35 29 23 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(35 29 23 / 0.06), 0 18px 40px -18px rgb(35 29 23 / 0.25);
+
+  --animate-rise: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/* Text size is a per-person setting (Settings -> Text size). Everything is sized in rem. */
+html {
+  font-size: 112.5%; /* 18px base: larger than the web default on purpose */
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+html.text-size-large {
+  font-size: 125%;
+}
+html.text-size-extra-large {
+  font-size: 137.5%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* One focus style everywhere: thick, offset, never removed. */
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: var(--color-honey-soft);
+  color: var(--color-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

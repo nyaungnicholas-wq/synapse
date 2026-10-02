@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+.env.local
+uploads
+src/generated
+.git
+.claude
+.agents
+.windsurf
+deploy/logs
+*.tsbuildinfo
+docker-compose.yml
+Dockerfile
+.dockerignore

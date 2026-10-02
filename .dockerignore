@@ -1,0 +1,14 @@
+node_modules
+.next
+.env
+.env.*
+!.env.example
+uploads
+src/generated
+.git
+.claude
+.agents
+.windsurf
+*.tsbuildinfo
+coverage
+deploy/logs
